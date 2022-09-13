@@ -6,8 +6,8 @@ contract Bank {
         string bankName;
         string password;
         uint256 balance;
-        uint256 date;
-        address recipient;
+        uint256 createdAt;
+        address userAddress;
         string accountType;
     }
 
@@ -17,42 +17,52 @@ contract Bank {
         uint256 date;
     }
 
-    //
-    string nameBank;
-    //
-    // address recipient;
+    struct InterestTime {
+        uint256 date;
+    }
 
+    // bank name
+    string nameBank;
+    
     // mapping of address to password
-    mapping(address => User) public _fetchUser;
+    mapping(address => User) public userDetail;
     // mapping of address to transaction
     mapping(address => Transaction) public _lastTransactions;
+    // mapping of address to interestTime
+    mapping(address => InterestTime) private _dueInterest;
     // mapping of address to password
-    mapping(address => bytes32) public passwords;
-    //
-    mapping(address => bool) public time;
+    mapping(address => bytes32) private passwords;
+    // mapping of address to boolean
+    mapping(address => bool) private time;
 
-    User[] public users;
-    Transaction[] public transaction;
+    User[] private users;
+    Transaction[] private transaction;
+    InterestTime[] private interestTime;
 
     modifier restricted() {
         require(msg.sender != address(0), "You cannot use a zero address");
         require(accountExist(msg.sender), "Account address does not exist");
         _;
     }
-
-    constructor() payable {
-        // bank name
+    
+    /**
+     * @dev constructor takes the string and set the nameBank
+    */
+    constructor() {
         nameBank = "Ethereum Bank";
     }
 
-    // The following two functions allow the contract to accept ETH deposits
-    // directly from a wallet without calling a function
+    /**
+     * @dev The following two functions allow the contract to accept ETH deposits
+     * directly from a wallet without calling a function
+    */
     receive() external payable {}
 
     fallback() external payable {}
 
     /**
-     * @dev accountExists verifies if an address has a password
+     * @dev accountExists verifies if an address has a password ie, the address is
+     * registered with Ethereum bank
      */
     function accountExist(address _address) public view returns (bool) {
         // return true if password exist
@@ -72,8 +82,8 @@ contract Bank {
         User storage createUser = users.push();
         createUser.bankName = nameBank;
         createUser.password = password;
-        createUser.recipient = msg.sender;
-        createUser.date = block.timestamp;
+        createUser.userAddress = msg.sender;
+        createUser.createdAt = block.timestamp;
         passwords[msg.sender] = keccak256(abi.encodePacked(password));
 
         if (msg.value >= 0.1 ether) {
@@ -87,10 +97,12 @@ contract Bank {
         }
 
         createUser.balance = msg.value;
-        _fetchUser[msg.sender] = createUser;
+        userDetail[msg.sender] = createUser;
 
         // updates transaction history
         updateTransaction();
+        // update time to keep track of when a user is eligible to cliam intereset
+        eligibleInterest();
     }
 
     /**
@@ -98,7 +110,7 @@ contract Bank {
      */
     function deposit() public payable restricted {
         require(msg.value != 0, "Cannot deposit 0");
-        _fetchUser[msg.sender].balance += msg.value;
+        userDetail[msg.sender].balance += msg.value;
         // updates transaction history
         updateTransaction();
     }
@@ -107,9 +119,19 @@ contract Bank {
      * @dev withdraw the amount of eth from the contract to the users address
      */
     function withdraw(uint256 amount) public payable restricted {
-        require(getAccountBalance() >= msg.value, "Insufficient balance");
+        require(getBalance() >= msg.value, "Insufficient balance");
         payable(msg.sender).transfer(amount);
-        _fetchUser[msg.sender].balance -= amount;
+        userDetail[msg.sender].balance -= amount;
+
+        // updates transaction history
+        Transaction storage userTransaction = transaction.push();
+        userTransaction.amount = amount;
+        userTransaction.destination = msg.sender;
+        userTransaction.date = block.timestamp;
+        _lastTransactions[msg.sender] = userTransaction;
+
+        // update time to keep track of when a user is eligible to cliam intereset
+        eligibleInterest();
     }
 
     /**
@@ -121,10 +143,10 @@ contract Bank {
             "you have already withdrew your interest"
         );
         require(
-            block.timestamp > _lastTransactions[msg.sender].date + 100 days,
+            block.timestamp > _dueInterest[msg.sender].date + 5 minutes,
             "You are not eligible for interest"
         );
-        uint256 interestRate = (_fetchUser[msg.sender].balance * 5) / 100;
+        uint256 interestRate = (userDetail[msg.sender].balance * 5) / 100;
         payable(msg.sender).transfer(interestRate);
         time[msg.sender] = true;
     }
@@ -133,56 +155,77 @@ contract Bank {
      * @dev bankTranfer: transfers eth from the Ethereum Bank users account to
      * another user account
      */
-    function bankTransfer(address _address, uint256 amount)
+    function bankTransfer(address to, uint256 amount)
         public
         payable
         restricted
     {
-        require(getAccountBalance() >= msg.value, "Insufficient balance");
+        require(getBalance() >= amount, "Insufficient balance");
         // 1% transfer charges per transaction within the Ethereum Bank
         uint256 tax = (amount * 1) / 100;
         uint256 totalAmount = amount + tax;
         // debit from the senders account
-        _fetchUser[msg.sender].balance -= totalAmount;
+        userDetail[msg.sender].balance -= totalAmount;
         // transfer to address;
-        _fetchUser[_address].balance += amount;
+        userDetail[to].balance += amount;
+        
+        // updates transaction history
+        Transaction storage userTransaction = transaction.push();
+        userTransaction.amount = amount;
+        userTransaction.destination = to;
+        userTransaction.date = block.timestamp;
+        _lastTransactions[msg.sender] = userTransaction;
+
+         // update time to keep track of when a user is eligible to cliam intereset
+        eligibleInterest();
     }
 
     /**
      * @dev interTransfers eth from the Ethereum Bank users account to
      * an etheruem address
-     * Note: the address can be a registered Ethereum Bank user or not.
+     * Note: the address `to` can be a registered Ethereum Bank user or not.
      */
     function interTransfer(address to, uint256 amount)
         public
         payable
-        restricted
     {
+        require(msg.sender != address(0), "You cannot use a zero address");
+        require(getBalance() >= amount, "Insufficient balance");
         // 2% transfer charges per transaction to an ethereum address
         uint256 tax = (amount * 2) / 100;
         uint256 totalAmount = amount + tax;
         // debit from the senders account
-        _fetchUser[msg.sender].balance -= totalAmount;
+        userDetail[msg.sender].balance -= totalAmount;
         // transfer to the receiver
         payable(to).transfer(amount);
+        
+        // updates transaction history
+        Transaction storage userTransaction = transaction.push();
+        userTransaction.amount = amount;
+        userTransaction.destination = to;
+        userTransaction.date = block.timestamp;
+        _lastTransactions[msg.sender] = userTransaction;
+
+         // update time to keep track of when a user is eligible to cliam intereset
+        eligibleInterest();
     }
 
     /**
-     * @dev allTransactions returns all transaction history of a user
+     * @dev allTransactions returns all transaction history of a user (msg.sender)
      */
     function alltransction() public view returns (Transaction[] memory) {
         return transaction;
     }
 
     /**
-     * @dev getAccountBalance returns the amount of eth a user has in account
+     * @dev getBalance returns the amount of eth a user (msg.sender) has in account
      */
-    function getAccountBalance() public view returns (uint256) {
+    function getBalance() public view returns (uint256) {
         require(
             accountExist(msg.sender),
             "Account address does not exist, Create and account"
         );
-        return _fetchUser[msg.sender].balance;
+        return userDetail[msg.sender].balance;
     }
 
     /**
@@ -194,5 +237,14 @@ contract Bank {
         userTransaction.destination = msg.sender;
         userTransaction.date = block.timestamp;
         _lastTransactions[msg.sender] = userTransaction;
+    }
+
+    /**
+    * @dev eligibleInterest: this function returns the last withdrawal time of a user
+    */
+    function eligibleInterest()private restricted{
+        InterestTime storage user = interestTime.push();
+        user.date = block.timestamp;
+        _dueInterest[msg.sender] = user;
     }
 }
