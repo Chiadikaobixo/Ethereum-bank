@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.9;
 
 contract Bank {
     struct User {
         string bankName;
-        string password;
         uint256 balance;
         uint256 createdAt;
         address userAddress;
@@ -72,7 +72,7 @@ contract Bank {
     /**
      * @dev createAccount creates a user account
      */
-    function createAccount(string memory password) public payable {
+    function createAccount(bytes32 password) public payable {
         // zero address "0x000000000..."
         require(msg.sender != address(0), "You cannot use a zero address");
         require(msg.value != 0, "Can not deposit 0 amount");
@@ -81,10 +81,10 @@ contract Bank {
 
         User storage createUser = users.push();
         createUser.bankName = nameBank;
-        createUser.password = password;
         createUser.userAddress = msg.sender;
         createUser.createdAt = block.timestamp;
-        passwords[msg.sender] = keccak256(abi.encodePacked(password));
+
+        passwords[msg.sender] = password;
 
         if (msg.value >= 0.1 ether) {
             createUser.accountType = "Savings Account";
@@ -104,6 +104,13 @@ contract Bank {
         // update time to keep track of when a user is eligible to cliam intereset
         eligibleInterest();
     }
+    
+    /**
+     * @dev accountstatus return the status of an account address
+    */
+    function accountstatus() public view returns(string memory){
+        return userDetail[msg.sender].accountType;
+    }
 
     /**
      * deposit eth to the Ethereum Bank unbehalf of the user account
@@ -118,8 +125,9 @@ contract Bank {
     /**
      * @dev withdraw the amount of eth from the contract to the users address
      */
-    function withdraw(uint256 amount) public payable restricted {
+    function withdraw(uint256 amount, bytes32 password) public payable restricted {
         require(getBalance() >= msg.value, "Insufficient balance");
+        require(passwords[msg.sender] == password, "Password not correct");
         payable(msg.sender).transfer(amount);
         userDetail[msg.sender].balance -= amount;
 
@@ -137,7 +145,8 @@ contract Bank {
     /**
      * @dev returns 5% on interest of your savings after 100days of no transaction
      */
-    function claimInterest() public payable restricted {
+    function claimInterest(bytes32 password) public payable restricted {
+        require(passwords[msg.sender] == password, "Password not correct");
         require(
             time[msg.sender] == false,
             "you have already withdrew your interest"
@@ -146,8 +155,19 @@ contract Bank {
             block.timestamp > _dueInterest[msg.sender].date + 5 minutes,
             "You are not eligible for interest"
         );
-        uint256 interestRate = (userDetail[msg.sender].balance * 5) / 100;
-        payable(msg.sender).transfer(interestRate);
+        if(keccak256(abi.encodePacked(accountstatus())) == keccak256(abi.encodePacked("Savings Account")))  {
+            uint256 interestRate = (userDetail[msg.sender].balance * 2) / 100;
+            payable(msg.sender).transfer(interestRate);
+        }
+        if(keccak256(abi.encodePacked(accountstatus())) == keccak256(abi.encodePacked("Current Account")))  {
+            uint256 interestRate = (userDetail[msg.sender].balance * 3) / 100;
+            payable(msg.sender).transfer(interestRate);
+        }
+        if(keccak256(abi.encodePacked(accountstatus())) == keccak256(abi.encodePacked("Off-shore Account")))  {
+            uint256 interestRate = (userDetail[msg.sender].balance * 5) / 100;
+            payable(msg.sender).transfer(interestRate);
+        }
+
         time[msg.sender] = true;
     }
 
@@ -155,11 +175,11 @@ contract Bank {
      * @dev bankTranfer: transfers eth from the Ethereum Bank users account to
      * another user account
      */
-    function bankTransfer(address to, uint256 amount)
+    function bankTransfer(address to, uint256 amount, bytes32 password)
         public
-        payable
         restricted
     {
+        require(passwords[msg.sender] == password, "Password not correct");
         require(getBalance() >= amount, "Insufficient balance");
         // 1% transfer charges per transaction within the Ethereum Bank
         uint256 tax = (amount * 1) / 100;
@@ -185,11 +205,12 @@ contract Bank {
      * an etheruem address
      * Note: the address `to` can be a registered Ethereum Bank user or not.
      */
-    function interTransfer(address to, uint256 amount)
+    function interTransfer(address to, uint256 amount, bytes32 password)
         public
         payable
+        restricted
     {
-        require(msg.sender != address(0), "You cannot use a zero address");
+        require(passwords[msg.sender] == password, "Password not correct");
         require(getBalance() >= amount, "Insufficient balance");
         // 2% transfer charges per transaction to an ethereum address
         uint256 tax = (amount * 2) / 100;
@@ -208,6 +229,14 @@ contract Bank {
 
          // update time to keep track of when a user is eligible to cliam intereset
         eligibleInterest();
+    }
+    
+    /**
+     * @dev changePassword delete the user password and set a new password for the user
+    */
+    function changePassword(bytes32 password, bytes32 newPassword)public restricted{
+        require(passwords[msg.sender] == password, "Incorrect password");
+        passwords[msg.sender] = newPassword;
     }
 
     /**
@@ -240,7 +269,8 @@ contract Bank {
     }
 
     /**
-    * @dev eligibleInterest: this function returns the last withdrawal time of a user
+    * @dev eligibleInterest: this function returns the timestamp of when a user account
+    * was last debited
     */
     function eligibleInterest()private restricted{
         InterestTime storage user = interestTime.push();
