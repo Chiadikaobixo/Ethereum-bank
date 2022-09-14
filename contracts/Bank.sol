@@ -136,7 +136,9 @@ contract Bank {
     }
 
     /**
-     * @dev returns 5% on interest of your savings after 100days of no transaction
+     * @dev returns 2%, 3%, 5% on interest of your savings after 100days 
+     * of no transaction. the percentage interest depends on the status
+     * your account
      */
     function claimInterest(bytes32 password) public payable restricted {
         require(passwords[msg.sender] == password, "Password not correct");
