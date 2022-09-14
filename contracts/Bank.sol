@@ -60,14 +60,6 @@ contract Bank {
 
     fallback() external payable {}
 
-    /**
-     * @dev accountExists verifies if an address has a password ie, the address is
-     * registered with Ethereum bank
-     */
-    function accountExist(address _address) public view returns (bool) {
-        // return true if password exist
-        return passwords[_address] != bytes32(0);
-    }
 
     /**
      * @dev createAccount creates a user account
@@ -79,6 +71,7 @@ contract Bank {
         require(msg.value >= 0.1 ether, "Insufficient amount");
         require(!accountExist(msg.sender), "You already have an account");
 
+        // sets a user details
         User storage createUser = users.push();
         createUser.bankName = nameBank;
         createUser.userAddress = msg.sender;
@@ -101,7 +94,7 @@ contract Bank {
 
         // updates transaction history
         updateTransaction();
-        // update time to keep track of when a user is eligible to cliam intereset
+        // update time to keep track of when a user is eligible to claim intereset
         eligibleInterest();
     }
     
@@ -138,7 +131,7 @@ contract Bank {
         userTransaction.date = block.timestamp;
         _lastTransactions[msg.sender] = userTransaction;
 
-        // update time to keep track of when a user is eligible to cliam intereset
+        // update time to keep track of when a user is eligible to claim intereset
         eligibleInterest();
     }
 
@@ -152,7 +145,7 @@ contract Bank {
             "you have already withdrew your interest"
         );
         require(
-            block.timestamp > _dueInterest[msg.sender].date + 5 minutes,
+            block.timestamp > _dueInterest[msg.sender].date + 100 days,
             "You are not eligible for interest"
         );
         if(keccak256(abi.encodePacked(accountstatus())) == keccak256(abi.encodePacked("Savings Account")))  {
@@ -172,8 +165,8 @@ contract Bank {
     }
 
     /**
-     * @dev bankTranfer: transfers eth from the Ethereum Bank users account to
-     * another user account
+     * @dev bankTranfer: transfers eth within the Ethereum Bank, from one 
+     * users account to another user account
      */
     function bankTransfer(address to, uint256 amount, bytes32 password)
         public
@@ -196,12 +189,12 @@ contract Bank {
         userTransaction.date = block.timestamp;
         _lastTransactions[msg.sender] = userTransaction;
 
-         // update time to keep track of when a user is eligible to cliam intereset
+         // update time to keep track of when a user is eligible to claim intereset
         eligibleInterest();
     }
 
     /**
-     * @dev interTransfers eth from the Ethereum Bank users account to
+     * @dev interTransfers transfer eth from the Ethereum Bank users account to
      * an etheruem address
      * Note: the address `to` can be a registered Ethereum Bank user or not.
      */
@@ -227,10 +220,19 @@ contract Bank {
         userTransaction.date = block.timestamp;
         _lastTransactions[msg.sender] = userTransaction;
 
-         // update time to keep track of when a user is eligible to cliam intereset
+         // update time to keep track of when a user is eligible to claim intereset
         eligibleInterest();
     }
     
+    /**
+     * @dev accountExists verifies if an address has a password ie, the address is
+     * registered with Ethereum bank
+     */
+    function accountExist(address _address) public view returns (bool) {
+        // return true if password exist
+        return passwords[_address] != bytes32(0);
+    }
+
     /**
      * @dev changePassword delete the user password and set a new password for the user
     */
@@ -240,14 +242,15 @@ contract Bank {
     }
 
     /**
-     * @dev allTransactions returns all transaction history of a user (msg.sender)
+     * @dev allTransactions returns all transaction history
      */
     function alltransction() public view returns (Transaction[] memory) {
         return transaction;
     }
 
     /**
-     * @dev getBalance returns the amount of eth a user (msg.sender) has in account
+     * @dev getBalance returns the amount of eth a user (msg.sender) has in 
+     * the Ethereum Bank account
      */
     function getBalance() public view returns (uint256) {
         require(
